@@ -1,0 +1,94 @@
+Nome: Ísis Ardisson Logullo
+nUSP: 7577410
+
+Versão 1:
+
+CUDA SUM: 193924
+CUDA IF SUM: 193924
+CUDA SUM: 193936
+CUDA IF SUM: 193936
+CUDA SUM: 193897
+CUDA IF SUM: 193897
+CUDA SUM: 193841
+CUDA IF SUM: 193841
+CUDA SUM: 194036
+CUDA IF SUM: 194036
+CUDA SUM: 193989
+CUDA IF SUM: 193989
+CUDA SUM: 193878
+CUDA IF SUM: 193878
+CUDA SUM: 193909
+CUDA IF SUM: 193909
+CUDA SUM: 193882
+CUDA IF SUM: 193882
+CUDA SUM: 193825
+CUDA IF SUM: 193825
+Average cudaTime 173ms
+Avarage cudaIfTime 161ms
+
+Versão 2:
+
+CUDA SUM: 193924
+CUDA IF SUM: 193956
+CUDA SUM: 193936
+CUDA IF SUM: 193959
+CUDA SUM: 193897
+CUDA IF SUM: 193924
+CUDA SUM: 193841
+CUDA IF SUM: 193872
+CUDA SUM: 194036
+CUDA IF SUM: 194069
+CUDA SUM: 193989
+CUDA IF SUM: 194019
+CUDA SUM: 193878
+CUDA IF SUM: 193908
+CUDA SUM: 193909
+CUDA IF SUM: 193950
+CUDA SUM: 193882
+CUDA IF SUM: 193922
+CUDA SUM: 193825
+CUDA IF SUM: 193858
+Average cudaTime 174ms
+Avarage cudaIfTime 176ms
+
+Versão 3:
+
+CUDA SUM: 193924
+CUDA IF SUM: 99045
+CUDA SUM: 193936
+CUDA IF SUM: 98797
+CUDA SUM: 193897
+CUDA IF SUM: 98784
+CUDA SUM: 193841
+CUDA IF SUM: 98611
+CUDA SUM: 194036
+CUDA IF SUM: 98987
+CUDA SUM: 193989
+CUDA IF SUM: 98771
+CUDA SUM: 193878
+CUDA IF SUM: 98739
+CUDA SUM: 193909
+CUDA IF SUM: 98888
+CUDA SUM: 193882
+CUDA IF SUM: 98979
+CUDA SUM: 193825
+CUDA IF SUM: 98674
+Average cudaTime 173ms
+Avarage cudaIfTime 185ms
+
+O tempo do if aumentou mais ainda. Isso se deve aos "pacotes" warps do CUDA explicados abaixo:
+
+Um dos problemas com a terminologia CUDA é que um “thread CUDA” (item de trabalho OpenCL) não é um encadeamento no sentido adequado da palavra: não é a menor unidade de despacho de execução, no nível do hardware.
+
+Em vez disso, os itens de trabalho ("threads CUDA") no mesmo grupo de trabalho ("bloco de threads CUDA") são despachados no nível do hardware em lotes ("subgrupos" no OpenCL), que a NVIDIA chama de "warps" (AMD chama-os de “frente de onda”). Todos os itens de trabalho no mesmo subgrupo compartilham o mesmo contador de programa, ou seja, a cada ciclo de clock eles estão sempre na mesma instrução.
+
+Se, devido à execução condicional, alguns itens de trabalho no mesmo subgrupo não devem executar a mesma instrução, eles são mascarados quando o subgrupo (warp) é despachado. Se a condicional é tal que alguns itens de trabalho no subgrupo devem fazer algo, e os outros itens de trabalho no subgrupo devem fazer outra coisa, então o que acontece é que os dois caminhos de código são seguidos sequencialmente pelo sub -group, com os itens de trabalho apropriados mascarados.
+
+Digamos que você tenha um código como
+
+if (alguma_condição) do_stuff_A (); else do_stuff_B ()
+onde alguma_condição é satisfeita, por exemplo, apenas por (todos) os itens de trabalho de numeração ímpar. Então o que acontece é que o subgrupo (warp) executará do_stuff_A () com os itens de trabalho pares mascarados (ou seja, consumindo recursos, mas não fazendo trabalho real), e então o mesmo subgrupo (warp) será executado do_stuff_B () com os itens de trabalho ímpares mascarados (isto é, consumindo recursos, mas não fazendo trabalho real). O tempo total de execução desta condicional é então o tempo de execução de do_stuff_A () mais o tempo de execução de do_stuff_B ().
+
+No entanto, se a condição é tal que todos os itens de trabalho no mesmo subgrupo (warp) seguem o mesmo caminho, as coisas acontecem de forma diferente. Por exemplo, em GPUs NVIDIA, o subgrupo (warp) é composto por 32 itens de trabalho (“threads CUDA”). Se alguma_condição for satisfeita por todos os itens de trabalho em warps de números ímpares, então o que acontece é que warps de números ímpares irão executar do_stuff_A () enquanto warps de números pares irão executar do_stuff_B (). Se a unidade de computação (streaming multiprocessador) pode executar vários warps ao mesmo tempo (a maioria das GPUs modernas são assim), o tempo de execução total desta seção de código é simplesmente o mais longo entre os tempos de execução de do_stuff_A () e do_stuff_B (), porque o código os caminhos serão percorridos simultaneamente por diferentes warps (subgrupos).
+
+
